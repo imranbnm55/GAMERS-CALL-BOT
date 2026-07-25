@@ -12,7 +12,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "GAMERS CALL ESCROW BOT IS RUNNING LIKE A BOSS!"
+    return "GAMERS CALL ESCROW BOT IS RUNNING!"
 
 def run_server():
     port = int(os.environ.get('PORT', 8080))
@@ -40,7 +40,7 @@ group_filters = {}
 approved_users = set()
 
 # ==========================================
-# 1. START & ESCROW INFO (No Clash with Rose)
+# 1. START COMMAND
 # ==========================================
 @bot.on(events.NewMessage(pattern=r'(?i)^/start'))
 async def start_handler(event):
@@ -49,9 +49,11 @@ async def start_handler(event):
     buttons = [[Button.url("➕ Add To Group", f"https://t.me/{(await bot.get_me()).username}?startgroup=true")]]
     await event.respond(welcome_text, buttons=buttons, parse_mode='html')
 
-# (Changed /info to /escrow so it doesn't clash with Rose)
-@bot.on(events.NewMessage(pattern=r'(?i)^/escrow'))
-async def escrow_handler(event):
+# ==========================================
+# 2. INFO / RULES PANEL (Restored to /info)
+# ==========================================
+@bot.on(events.NewMessage(pattern=r'(?i)^/info'))
+async def info_handler(event):
     if event.is_private: return
     info_text = (
         "🎮 <b>GAMERS CALL ESCROW SERVICE</b> 🎮\n\n"
@@ -74,20 +76,20 @@ async def admins_callback(event):
     await event.answer("Only deal with admins listed in the group description!", alert=True)
 
 # ==========================================
-# 2. AUTO-WELCOME
+# 3. AUTO-WELCOME
 # ==========================================
 @bot.on(events.ChatAction)
 async def welcome_new_member(event):
     if event.user_joined or event.added_by:
         for user in event.users:
             if user.bot: continue
-            welcome_msg = f"👋 Welcome <a href='tg://user?id={user.id}'>{user.first_name}</a> to <b>GAMERS CALL ESCROW SERVICE</b>!\n📌 Type <code>/escrow</code> for safe trading rules."
+            welcome_msg = f"👋 Welcome <a href='tg://user?id={user.id}'>{user.first_name}</a> to <b>GAMERS CALL ESCROW SERVICE</b>!\n📌 Type <code>/info</code> for safe trading rules."
             try:
                 await event.respond(welcome_msg, parse_mode='html')
             except Exception: pass
 
 # ==========================================
-# 3. WARNING SYSTEM
+# 4. WARNING SYSTEM
 # ==========================================
 @bot.on(events.NewMessage(pattern=r'(?i)^/warn'))
 async def warn_handler(event):
@@ -117,7 +119,7 @@ async def unwarn_handler(event):
         await event.reply("✅ <b>User warnings reset to 0!</b>", parse_mode='html')
 
 # ==========================================
-# 4. PIN WITH LOUD / SILENT
+# 5. PIN WITH LOUD / SILENT
 # ==========================================
 @bot.on(events.NewMessage(pattern=r'(?i)^/pin'))
 async def pin_prompt(event):
@@ -149,7 +151,7 @@ async def unpin_handler(event):
     except: pass
 
 # ==========================================
-# 5. MODERATION (BAN/MUTE)
+# 6. MODERATION (BAN/MUTE)
 # ==========================================
 @bot.on(events.NewMessage(pattern=r'(?i)^/ban'))
 async def ban_handler(event):
@@ -185,7 +187,7 @@ async def unban_mute_handler(event):
     except: pass
 
 # ==========================================
-# 6. ADMIN PROMOTE / DEMOTE
+# 7. ADMIN PROMOTE / DEMOTE
 # ==========================================
 @bot.on(events.NewMessage(pattern=r'(?i)^/promote'))
 async def promote_handler(event):
@@ -210,7 +212,7 @@ async def demote_handler(event):
     except: pass
 
 # ==========================================
-# 7. FILTERS & ANTI-SPAM LINK SHIELD
+# 8. FILTERS & ANTI-SPAM LINK SHIELD
 # ==========================================
 @bot.on(events.NewMessage(pattern=r'(?i)^/approve'))
 async def approve_handler(event):
@@ -251,4 +253,4 @@ async def main_chat_handler(event):
 
 print("GAMERS CALL ESCROW BOT IS FULLY ACTIVE...")
 bot.run_until_disconnected()
-    
+            

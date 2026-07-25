@@ -39,7 +39,8 @@ group_filters = {}
 approved_users = set()
 user_vouches = {}
 custom_welcomes = {}
-tracked_groups = set()  # Saves group IDs for Auto Lock/Unlock
+tracked_groups = set()  
+username_to_id = {}  # Tracks usernames to allow /vouch @username
 
 # ==========================================
 # AUTO LOCK / UNLOCK SYSTEM (12 AM & 7 AM IST)
@@ -49,10 +50,7 @@ def auto_lock_unlock():
     unlocked_today = False
     while True:
         try:
-            # India Time (IST = UTC + 5:30)
             now = datetime.utcnow() + timedelta(hours=5, minutes=30)
-            
-            # 12:00 AM (00:00) - AUTO LOCK
             if now.hour == 0 and now.minute == 0 and not locked_today:
                 for cid in list(tracked_groups):
                     try:
@@ -61,8 +59,6 @@ def auto_lock_unlock():
                     except: pass
                 locked_today = True
                 unlocked_today = False
-            
-            # 7:00 AM (07:00) - AUTO UNLOCK
             elif now.hour == 7 and now.minute == 0 and not unlocked_today:
                 for cid in list(tracked_groups):
                     try:
@@ -71,14 +67,11 @@ def auto_lock_unlock():
                     except: pass
                 unlocked_today = True
                 locked_today = False
-                
-            # Reset flags at noon
             elif now.hour == 12:
                 locked_today = False
                 unlocked_today = False
-                
         except Exception as e: pass
-        time.sleep(30) # Check every 30 seconds
+        time.sleep(30)
 
 Thread(target=auto_lock_unlock, daemon=True).start()
 
@@ -131,6 +124,9 @@ def info_handler(message):
     uid, first_name = target_user.id, target_user.first_name
     username = f"@{target_user.username}" if target_user.username else "None"
     
+    if target_user.username:
+        username_to_id['@' + target_user.username.lower()] = uid
+        
     try:
         member = bot.get_chat_member(message.chat.id, uid)
         status = 'Owner' if member.status.capitalize() == 'Creator' else member.status.capitalize()
@@ -141,12 +137,12 @@ def info_handler(message):
     info_text = (f"<b>GAMERS CALL SECURITY BOT</b>\n\n🆔 <b>ID:</b> <code>{uid}</code> <a href='tg://user?id={uid}'>#id{uid}</a>\n👦 <b>Name:</b> {first_name}\n🌐 <b>Username:</b> {username}\n👀 <b>Situation:</b> {status}\n❕ <b>Warns:</b> {warns}/3\n🤝 <b>Vouches:</b> {vouches}\n🔄 <b>Join:</b> System Not Tracked")
     
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("❕ Warn", callback_data=f"warnbtn_{uid}"), InlineKeyboardButton("🤝 Vouch", callback_data=f"vouchbtn_{uid}"))
+    markup.row(InlineKeyboardButton("❕ Warn", callback_data=f"warnbtn_{uid}"))
     markup.row(InlineKeyboardButton("🔇 Mute", callback_data=f"mutebtn_{uid}"), InlineKeyboardButton("🚫 Ban", callback_data=f"banbtn_{uid}"))
-    markup.row(InlineKeyboardButton("👑 Promote", callback_data=f"promotebtn_{uid}"), InlineKeyboardButton("📉 Demote", callback_data=f"demotebtn_{uid}"))
+    
     bot.reply_to(message, info_text, parse_mode='html', reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith(('warnbtn_', 'mutebtn_', 'banbtn_', 'promotebtn_', 'demotebtn_', 'vouchbtn_')))
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('warnbtn_', 'mutebtn_', 'banbtn_')))
 def info_buttons_callback(call):
     if call.from_user.id != ADMIN_ID: return bot.answer_callback_query(call.id, "⚠️ Only Admins can use these buttons!", show_alert=True)
     action, uid = call.data.split('_')
@@ -162,10 +158,6 @@ def info_buttons_callback(call):
             except: pass
         else: bot.send_message(call.message.chat.id, f"⚠️ <b>User Warned!</b> ({user_warns[uid]}/3)\n👤 ID: <code>{uid}</code>", parse_mode='html')
         bot.answer_callback_query(call.id, "Action: User Warned")
-    elif action == 'vouchbtn':
-        user_vouches[uid] = user_vouches.get(uid, 0) + 1
-        bot.send_message(call.message.chat.id, f"✅ <b>Trust +1!</b> User <code>{uid}</code> now has {user_vouches[uid]} vouches.", parse_mode='html')
-        bot.answer_callback_query(call.id, "Action: Vouch Added")
     elif action == 'mutebtn':
         try:
             bot.restrict_chat_member(call.message.chat.id, uid, can_send_messages=False)
@@ -178,18 +170,6 @@ def info_buttons_callback(call):
             bot.send_message(call.message.chat.id, f"🔨 <b>Banned!</b> User <code>{uid}</code> has been removed.", parse_mode='html')
         except: pass
         bot.answer_callback_query(call.id, "Action: User Banned")
-    elif action == 'promotebtn':
-        try:
-            bot.promote_chat_member(call.message.chat.id, uid, can_change_info=False, can_post_messages=True, can_edit_messages=True, can_delete_messages=True, can_invite_users=True, can_restrict_members=True, can_pin_messages=True)
-            bot.send_message(call.message.chat.id, f"👑 <b>Promoted!</b> User <code>{uid}</code> is now an Admin.", parse_mode='html')
-        except: pass
-        bot.answer_callback_query(call.id, "Action: Promoted")
-    elif action == 'demotebtn':
-        try:
-            bot.promote_chat_member(call.message.chat.id, uid, can_change_info=False, can_post_messages=False, can_edit_messages=False, can_delete_messages=False, can_invite_users=False, can_restrict_members=False, can_pin_messages=False)
-            bot.send_message(call.message.chat.id, f"📉 <b>Demoted!</b> User <code>{uid}</code> is no longer Admin.", parse_mode='html')
-        except: pass
-        bot.answer_callback_query(call.id, "Action: Demoted")
 
 # ==========================================
 # 4. CUSTOM WELCOME MESSAGE
@@ -209,6 +189,8 @@ def welcome_new_member(message):
     tracked_groups.add(message.chat.id)
     for user in message.new_chat_members:
         if not user.is_bot:
+            if user.username:
+                username_to_id['@' + user.username.lower()] = user.id
             default_w = "👋 Welcome {name} to <b>GAMERS CALL ESCROW SERVICE</b>!\n📌 Type <code>/rules</code> for safe trading rules."
             w_text = custom_welcomes.get(message.chat.id, default_w)
             user_mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
@@ -232,7 +214,45 @@ def unlock_chat(message):
     bot.reply_to(message, "🔓 <b>Group Unlocked!</b> Everyone can message now.", parse_mode='html')
 
 # ==========================================
-# 6. PIN COMMANDS
+# 6. ADVANCED VOUCH COMMAND
+# ==========================================
+@bot.message_handler(commands=['vouch'])
+def vouch_handler(message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    args = message.text.split()
+    uid = None
+    amount = 1 # Default
+    
+    # CASE 1: Reply to a user
+    if message.reply_to_message:
+        uid = message.reply_to_message.from_user.id
+        if len(args) > 1:
+            try: amount = int(args[1])
+            except: pass
+            
+    # CASE 2: No reply, using ID or @username
+    else:
+        if len(args) >= 3:
+            target = args[1]
+            if target.isdigit(): uid = int(target)
+            elif target.startswith('@'): uid = username_to_id.get(target.lower())
+            try: amount = int(args[2])
+            except: pass
+            
+        elif len(args) == 2:
+            target = args[1]
+            if target.isdigit(): uid = int(target)
+            elif target.startswith('@'): uid = username_to_id.get(target.lower())
+            
+    if not uid:
+        return bot.reply_to(message, "⚠️ <b>Usage:</b>\n1. Reply: `/vouch [amount]`\n2. Direct: `/vouch [User ID or @username] [amount]`", parse_mode='html')
+        
+    user_vouches[uid] = user_vouches.get(uid, 0) + amount
+    bot.reply_to(message, f"✅ <b>Trust updated by {amount}!</b>\nUser <code>{uid}</code> now has {user_vouches[uid]} vouches.", parse_mode='html')
+
+# ==========================================
+# 7. PIN & OTHER MODERATION COMMANDS
 # ==========================================
 @bot.message_handler(commands=['pin'])
 def pin_prompt(message):
@@ -261,17 +281,6 @@ def unpin_handler(message):
         bot.unpin_chat_message(message.chat.id, message.reply_to_message.message_id)
         bot.reply_to(message, "📌 <b>Message Unpinned!</b>", parse_mode='html')
     except: pass
-
-# ==========================================
-# 7. TEXT MODERATION COMMANDS
-# ==========================================
-@bot.message_handler(commands=['vouch'])
-def vouch_handler(message):
-    if message.from_user.id != ADMIN_ID: return
-    if not message.reply_to_message: return
-    uid = message.reply_to_message.from_user.id
-    user_vouches[uid] = user_vouches.get(uid, 0) + 1
-    bot.reply_to(message, f"✅ <b>Trust +1!</b> User now has {user_vouches[uid]} vouches.", parse_mode='html')
 
 @bot.message_handler(commands=['ban'])
 def ban_handler(message):
@@ -346,6 +355,10 @@ def main_chat_handler(message):
     if message.chat.type == 'private': return
     tracked_groups.add(message.chat.id)
     text = (message.text or "").lower()
+    
+    # Store username mapping for /vouch @username
+    if message.from_user.username:
+        username_to_id['@' + message.from_user.username.lower()] = message.from_user.id
     
     for keyword, reply_text in group_filters.items():
         if keyword in text and not text.startswith('/'):

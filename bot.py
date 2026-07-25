@@ -38,9 +38,9 @@ user_warns = {}
 group_filters = {}
 approved_users = set()
 user_vouches = {}
-custom_welcomes = {}
+custom_welcomes = {}  # Now stores dicts with text and media
 tracked_groups = set()  
-username_to_id = {}  # Tracks usernames to allow /vouch @username
+username_to_id = {}  
 
 # ==========================================
 # AUTO LOCK / UNLOCK SYSTEM (12 AM & 7 AM IST)
@@ -172,17 +172,43 @@ def info_buttons_callback(call):
         bot.answer_callback_query(call.id, "Action: User Banned")
 
 # ==========================================
-# 4. CUSTOM WELCOME MESSAGE
+# 4. CUSTOM MEDIA WELCOME MESSAGE
 # ==========================================
-@bot.message_handler(commands=['setwelcome'])
-def set_welcome_handler(message):
+@bot.message_handler(commands=['addwelcome'])
+def add_welcome_handler(message):
     if message.from_user.id != ADMIN_ID: return
-    args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        custom_welcomes[message.chat.id] = args[1]
-        bot.reply_to(message, "✅ <b>Custom Welcome Message Set!</b>\n\n<i>Use {name} in your text to mention the user.</i>", parse_mode='html')
-    else:
-        bot.reply_to(message, "⚠️ <b>Usage:</b> `/setwelcome [message]`\nExample: `/setwelcome Hello {name}, welcome to our Escrow!`", parse_mode='html')
+    
+    # Extract text after command
+    welcome_text = message.text.replace('/addwelcome', '').strip()
+    media_id = None
+    media_type = None
+    
+    # If replied to a photo/video/gif
+    if message.reply_to_message:
+        if message.reply_to_message.photo:
+            media_id = message.reply_to_message.photo[-1].file_id
+            media_type = 'photo'
+        elif message.reply_to_message.animation:
+            media_id = message.reply_to_message.animation.file_id
+            media_type = 'animation'
+        elif message.reply_to_message.video:
+            media_id = message.reply_to_message.video.file_id
+            media_type = 'video'
+            
+        # If no text provided, try to grab the caption of the replied media
+        if not welcome_text and message.reply_to_message.caption:
+            welcome_text = message.reply_to_message.caption
+            
+    if not welcome_text:
+        welcome_text = "👋 Welcome {name} to our group!"
+        
+    custom_welcomes[message.chat.id] = {
+        'text': welcome_text,
+        'media': media_id,
+        'type': media_type
+    }
+    
+    bot.reply_to(message, "✅ <b>Custom Welcome Saved!</b>\n\n<i>Your bot will now send this message (with the photo if attached) to new members!</i>", parse_mode='html')
 
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome_new_member(message):
@@ -191,11 +217,29 @@ def welcome_new_member(message):
         if not user.is_bot:
             if user.username:
                 username_to_id['@' + user.username.lower()] = user.id
-            default_w = "👋 Welcome {name} to <b>GAMERS CALL ESCROW SERVICE</b>!\n📌 Type <code>/rules</code> for safe trading rules."
-            w_text = custom_welcomes.get(message.chat.id, default_w)
+            
+            # Default welcome data
+            w_data = custom_welcomes.get(message.chat.id, {
+                'text': "👋 Welcome {name} to <b>GAMERS CALL ESCROW SERVICE</b>!\n📌 Type <code>/rules</code> for safe trading rules.",
+                'media': None,
+                'type': None
+            })
+            
             user_mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
-            final_msg = w_text.replace('{name}', user_mention)
-            bot.reply_to(message, final_msg, parse_mode='html')
+            final_msg = w_data['text'].replace('{name}', user_mention)
+            
+            try:
+                if w_data['media']:
+                    if w_data['type'] == 'photo':
+                        bot.send_photo(message.chat.id, w_data['media'], caption=final_msg, parse_mode='html')
+                    elif w_data['type'] == 'animation':
+                        bot.send_animation(message.chat.id, w_data['media'], caption=final_msg, parse_mode='html')
+                    elif w_data['type'] == 'video':
+                        bot.send_video(message.chat.id, w_data['media'], caption=final_msg, parse_mode='html')
+                else:
+                    bot.send_message(message.chat.id, final_msg, parse_mode='html')
+            except:
+                bot.send_message(message.chat.id, final_msg, parse_mode='html')
 
 # ==========================================
 # 5. MANUAL LOCK / UNLOCK
@@ -376,4 +420,4 @@ def main_chat_handler(message):
 
 print("GAMERS CALL ESCROW BOT IS FULLY ACTIVE...")
 bot.infinity_polling()
-            
+                               

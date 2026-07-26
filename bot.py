@@ -38,9 +38,18 @@ user_warns = {}
 group_filters = {}
 approved_users = set()
 user_vouches = {}
-custom_welcomes = {}  # Now stores dicts with text and media
 tracked_groups = set()  
 username_to_id = {}  
+
+# ==========================================
+# ADMIN CHECKER
+# ==========================================
+def is_admin(chat_id, user_id):
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        return member.status in ['administrator', 'creator']
+    except:
+        return False
 
 # ==========================================
 # AUTO LOCK / UNLOCK SYSTEM (12 AM & 7 AM IST)
@@ -76,7 +85,7 @@ def auto_lock_unlock():
 Thread(target=auto_lock_unlock, daemon=True).start()
 
 # ==========================================
-# 1. START COMMAND
+# 1. HELP & START COMMANDS
 # ==========================================
 @bot.message_handler(commands=['start'])
 def start_handler(message):
@@ -87,8 +96,33 @@ def start_handler(message):
     markup.add(InlineKeyboardButton("➕ Add To Group", url=f"https://t.me/{bot.get_me().username}?startgroup=true"))
     bot.send_message(message.chat.id, "🛡️ <b>GAMERS CALL ESCROW BOT</b> 🛡️\n\nOfficial group assistant bot for <b>GAMERS CALL ESCROW SERVICE</b>.", parse_mode='html', reply_markup=markup)
 
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    if message.chat.type == 'private': return
+    tracked_groups.add(message.chat.id)
+    help_text = (
+        "🛡️ <b>GAMERS CALL ESCROW BOT COMMANDS</b> 🛡️\n\n"
+        "<b>👮‍♂️ Moderation (No Clash with Rose):</b>\n"
+        "<code>/id</code> - Check user profile & action buttons (Reply or @username)\n"
+        "<code>/cunwarn</code> - Remove all warnings from a user (Reply)\n"
+        "<code>/cban</code> - Ban a user (Reply)\n"
+        "<code>/cunban</code> - Unban a user (Reply)\n"
+        "<code>/cunmute</code> - Unmute a user (Reply)\n\n"
+        "<b>📌 Group Management:</b>\n"
+        "<code>/cpin</code> - Pin a message (Loud/Silent options)\n"
+        "<code>/cunpin</code> - Unpin a message\n"
+        "<code>/clock</code> - Lock group (Admins only)\n"
+        "<code>/cunlock</code> - Unlock group\n\n"
+        "<b>🤝 Trust System:</b>\n"
+        "<code>/vouch [amount]</code> - Add vouches (Reply or @username)\n\n"
+        "<b>👋 Welcome System:</b>\n"
+        "Welcome message is AUTOMATIC when new members join.\n"
+        "<code>/testwelcome</code> - Test the welcome message manually."
+    )
+    bot.reply_to(message, help_text, parse_mode='html')
+
 # ==========================================
-# 2. ESCROW RULES PANEL (/rules)
+# 2. ESCROW RULES PANEL
 # ==========================================
 @bot.message_handler(commands=['rules'])
 def rules_handler(message):
@@ -113,14 +147,31 @@ def rules_callback_query(call):
     elif call.data == 'admins': bot.answer_callback_query(call.id, "Only deal with admins listed in the group description!", show_alert=True)
 
 # ==========================================
-# 3. ADVANCED /INFO COMMAND
+# 3. ID / PROFILE COMMAND
 # ==========================================
-@bot.message_handler(commands=['info'])
-def info_handler(message):
+@bot.message_handler(commands=['id', 'profile'])
+def id_handler(message):
     if message.chat.type == 'private': return
     tracked_groups.add(message.chat.id)
     
-    target_user = message.reply_to_message.from_user if message.reply_to_message else message.from_user
+    args = message.text.split()
+    target_user = None
+    
+    if len(args) > 1 and args[1].startswith('@'):
+        username = args[1].lower()
+        if username in username_to_id:
+            uid = username_to_id[username]
+            try:
+                chat_member = bot.get_chat_member(message.chat.id, uid)
+                target_user = chat_member.user
+            except: pass
+        if not target_user:
+             return bot.reply_to(message, "⚠️ <b>User not found in memory!</b>\nMake sure they have sent at least one message here.", parse_mode='html')
+    elif message.reply_to_message:
+        target_user = message.reply_to_message.from_user
+    else:
+        target_user = message.from_user
+        
     uid, first_name = target_user.id, target_user.first_name
     username = f"@{target_user.username}" if target_user.username else "None"
     
@@ -137,16 +188,19 @@ def info_handler(message):
     info_text = (f"<b>GAMERS CALL SECURITY BOT</b>\n\n🆔 <b>ID:</b> <code>{uid}</code> <a href='tg://user?id={uid}'>#id{uid}</a>\n👦 <b>Name:</b> {first_name}\n🌐 <b>Username:</b> {username}\n👀 <b>Situation:</b> {status}\n❕ <b>Warns:</b> {warns}/3\n🤝 <b>Vouches:</b> {vouches}\n🔄 <b>Join:</b> System Not Tracked")
     
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("❕ Warn", callback_data=f"warnbtn_{uid}"))
-    markup.row(InlineKeyboardButton("🔇 Mute", callback_data=f"mutebtn_{uid}"), InlineKeyboardButton("🚫 Ban", callback_data=f"banbtn_{uid}"))
+    if not is_admin(message.chat.id, uid):
+        markup.row(InlineKeyboardButton("❕ Warn", callback_data=f"warnbtn_{uid}"))
+        markup.row(InlineKeyboardButton("🔇 Mute", callback_data=f"mutebtn_{uid}"), InlineKeyboardButton("🚫 Ban", callback_data=f"banbtn_{uid}"))
     
     bot.reply_to(message, info_text, parse_mode='html', reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('warnbtn_', 'mutebtn_', 'banbtn_')))
 def info_buttons_callback(call):
-    if call.from_user.id != ADMIN_ID: return bot.answer_callback_query(call.id, "⚠️ Only Admins can use these buttons!", show_alert=True)
+    if call.from_user.id != ADMIN_ID: return bot.answer_callback_query(call.id, "⚠️ Only Escrow Owners can use these buttons!", show_alert=True)
     action, uid = call.data.split('_')
     uid = int(uid)
+    
+    if is_admin(call.message.chat.id, uid): return bot.answer_callback_query(call.id, "⚠️ Cannot perform this action on an Admin!", show_alert=True)
     
     if action == 'warnbtn':
         user_warns[uid] = user_warns.get(uid, 0) + 1
@@ -172,43 +226,14 @@ def info_buttons_callback(call):
         bot.answer_callback_query(call.id, "Action: User Banned")
 
 # ==========================================
-# 4. CUSTOM MEDIA WELCOME MESSAGE
+# 4. WELCOME MESSAGE SYSTEM
 # ==========================================
-@bot.message_handler(commands=['addwelcome'])
-def add_welcome_handler(message):
-    if message.from_user.id != ADMIN_ID: return
-    
-    # Extract text after command
-    welcome_text = message.text.replace('/addwelcome', '').strip()
-    media_id = None
-    media_type = None
-    
-    # If replied to a photo/video/gif
-    if message.reply_to_message:
-        if message.reply_to_message.photo:
-            media_id = message.reply_to_message.photo[-1].file_id
-            media_type = 'photo'
-        elif message.reply_to_message.animation:
-            media_id = message.reply_to_message.animation.file_id
-            media_type = 'animation'
-        elif message.reply_to_message.video:
-            media_id = message.reply_to_message.video.file_id
-            media_type = 'video'
-            
-        # If no text provided, try to grab the caption of the replied media
-        if not welcome_text and message.reply_to_message.caption:
-            welcome_text = message.reply_to_message.caption
-            
-    if not welcome_text:
-        welcome_text = "👋 Welcome {name} to our group!"
-        
-    custom_welcomes[message.chat.id] = {
-        'text': welcome_text,
-        'media': media_id,
-        'type': media_type
-    }
-    
-    bot.reply_to(message, "✅ <b>Custom Welcome Saved!</b>\n\n<i>Your bot will now send this message (with the photo if attached) to new members!</i>", parse_mode='html')
+@bot.message_handler(commands=['testwelcome'])
+def test_welcome(message):
+    user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
+    final_msg = f"👋 Welcome {user_mention} to <b>GAMERS CALL ESCROW SERVICE!</b> 🎀🫂\nPlease check /rules before trading."
+    bot.reply_to(message, final_msg, parse_mode='html')
+    bot.send_message(message.chat.id, "<i>(This is how the automatic welcome message will look when a new member joins!)</i>", parse_mode='html')
 
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome_new_member(message):
@@ -218,47 +243,33 @@ def welcome_new_member(message):
             if user.username:
                 username_to_id['@' + user.username.lower()] = user.id
             
-            # Default welcome data
-            w_data = custom_welcomes.get(message.chat.id, {
-                'text': "👋 Welcome {name} to <b>GAMERS CALL ESCROW SERVICE</b>!\n📌 Type <code>/rules</code> for safe trading rules.",
-                'media': None,
-                'type': None
-            })
-            
             user_mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
-            final_msg = w_data['text'].replace('{name}', user_mention)
+            final_msg = f"👋 Welcome {user_mention} to <b>GAMERS CALL ESCROW SERVICE!</b> 🎀🫂\nPlease check /rules before trading."
             
             try:
-                if w_data['media']:
-                    if w_data['type'] == 'photo':
-                        bot.send_photo(message.chat.id, w_data['media'], caption=final_msg, parse_mode='html')
-                    elif w_data['type'] == 'animation':
-                        bot.send_animation(message.chat.id, w_data['media'], caption=final_msg, parse_mode='html')
-                    elif w_data['type'] == 'video':
-                        bot.send_video(message.chat.id, w_data['media'], caption=final_msg, parse_mode='html')
-                else:
-                    bot.send_message(message.chat.id, final_msg, parse_mode='html')
-            except:
                 bot.send_message(message.chat.id, final_msg, parse_mode='html')
+            except:
+                pass
 
 # ==========================================
-# 5. MANUAL LOCK / UNLOCK
+# 5. LOCK & UNLOCK
 # ==========================================
-@bot.message_handler(commands=['lock'])
+@bot.message_handler(commands=['clock'])
 def lock_chat(message):
     if message.from_user.id != ADMIN_ID: return
     tracked_groups.add(message.chat.id)
     bot.set_chat_permissions(message.chat.id, ChatPermissions(can_send_messages=False))
     bot.reply_to(message, "🔒 <b>Group Locked!</b> Only Admins can message now.", parse_mode='html')
 
-@bot.message_handler(commands=['unlock'])
+@bot.message_handler(commands=['cunlock'])
 def unlock_chat(message):
     if message.from_user.id != ADMIN_ID: return
+    tracked_groups.add(message.chat.id)
     bot.set_chat_permissions(message.chat.id, ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True))
     bot.reply_to(message, "🔓 <b>Group Unlocked!</b> Everyone can message now.", parse_mode='html')
 
 # ==========================================
-# 6. ADVANCED VOUCH COMMAND
+# 6. VOUCH (RESTORED TO /vouch)
 # ==========================================
 @bot.message_handler(commands=['vouch'])
 def vouch_handler(message):
@@ -266,16 +277,13 @@ def vouch_handler(message):
     
     args = message.text.split()
     uid = None
-    amount = 1 # Default
+    amount = 1 
     
-    # CASE 1: Reply to a user
     if message.reply_to_message:
         uid = message.reply_to_message.from_user.id
         if len(args) > 1:
             try: amount = int(args[1])
             except: pass
-            
-    # CASE 2: No reply, using ID or @username
     else:
         if len(args) >= 3:
             target = args[1]
@@ -283,7 +291,6 @@ def vouch_handler(message):
             elif target.startswith('@'): uid = username_to_id.get(target.lower())
             try: amount = int(args[2])
             except: pass
-            
         elif len(args) == 2:
             target = args[1]
             if target.isdigit(): uid = int(target)
@@ -296,9 +303,9 @@ def vouch_handler(message):
     bot.reply_to(message, f"✅ <b>Trust updated by {amount}!</b>\nUser <code>{uid}</code> now has {user_vouches[uid]} vouches.", parse_mode='html')
 
 # ==========================================
-# 7. PIN & OTHER MODERATION COMMANDS
+# 7. MODERATION
 # ==========================================
-@bot.message_handler(commands=['pin'])
+@bot.message_handler(commands=['cpin'])
 def pin_prompt(message):
     if message.from_user.id != ADMIN_ID: return
     if not message.reply_to_message: return bot.reply_to(message, "⚠️ Reply to a message to pin it.")
@@ -317,7 +324,7 @@ def pin_callback(call):
         bot.edit_message_text(f"📌 <b>Message Pinned!</b> ({'Loud' if notify else 'Silent'})", call.message.chat.id, call.message.message_id, parse_mode='html')
     except: pass
 
-@bot.message_handler(commands=['unpin'])
+@bot.message_handler(commands=['cunpin'])
 def unpin_handler(message):
     if message.from_user.id != ADMIN_ID: return
     if not message.reply_to_message: return bot.reply_to(message, "⚠️ Reply to a pinned message to unpin it.")
@@ -326,17 +333,18 @@ def unpin_handler(message):
         bot.reply_to(message, "📌 <b>Message Unpinned!</b>", parse_mode='html')
     except: pass
 
-@bot.message_handler(commands=['ban'])
+@bot.message_handler(commands=['cban'])
 def ban_handler(message):
     if message.from_user.id != ADMIN_ID: return
     if not message.reply_to_message: return
     uid = message.reply_to_message.from_user.id
+    if is_admin(message.chat.id, uid): return bot.reply_to(message, "⚠️ Cannot ban an Admin!")
     try:
         bot.ban_chat_member(message.chat.id, uid)
         bot.reply_to(message, f"🔨 <b>Banned!</b>\n👤 ID: <code>{uid}</code>", parse_mode='html')
     except: pass
 
-@bot.message_handler(commands=['unban', 'unmute'])
+@bot.message_handler(commands=['cunban', 'cunmute'])
 def unban_mute_handler(message):
     if message.from_user.id != ADMIN_ID: return
     if not message.reply_to_message: return
@@ -346,7 +354,7 @@ def unban_mute_handler(message):
         bot.reply_to(message, f"✅ <b>Restrictions Removed!</b>", parse_mode='html')
     except: pass
 
-@bot.message_handler(commands=['unwarn'])
+@bot.message_handler(commands=['cunwarn'])
 def unwarn_handler(message):
     if message.from_user.id != ADMIN_ID: return
     if not message.reply_to_message: return
@@ -354,29 +362,11 @@ def unwarn_handler(message):
     if uid in user_warns:
         user_warns[uid] = 0
         bot.reply_to(message, "✅ <b>User warnings reset to 0!</b>", parse_mode='html')
-
-@bot.message_handler(commands=['promote'])
-def promote_handler(message):
-    if message.from_user.id != ADMIN_ID: return
-    if not message.reply_to_message: return
-    uid = message.reply_to_message.from_user.id
-    try:
-        bot.promote_chat_member(message.chat.id, uid, can_change_info=False, can_post_messages=True, can_edit_messages=True, can_delete_messages=True, can_invite_users=True, can_restrict_members=True, can_pin_messages=True, can_promote_members=False)
-        bot.reply_to(message, f"👑 <b>Promoted to Admin!</b>", parse_mode='html')
-    except: pass
-
-@bot.message_handler(commands=['demote'])
-def demote_handler(message):
-    if message.from_user.id != ADMIN_ID: return
-    if not message.reply_to_message: return
-    uid = message.reply_to_message.from_user.id
-    try:
-        bot.promote_chat_member(message.chat.id, uid, can_change_info=False, can_post_messages=False, can_edit_messages=False, can_delete_messages=False, can_invite_users=False, can_restrict_members=False, can_pin_messages=False, can_promote_members=False)
-        bot.reply_to(message, f"📉 <b>Demoted!</b>", parse_mode='html')
-    except: pass
+    else:
+        bot.reply_to(message, "✅ User already has 0 warnings.", parse_mode='html')
 
 # ==========================================
-# 8. FILTERS & ANTI-SPAM
+# 8. ANTI-SPAM
 # ==========================================
 @bot.message_handler(commands=['approve'])
 def approve_handler(message):
@@ -386,30 +376,16 @@ def approve_handler(message):
     approved_users.add(uid)
     bot.reply_to(message, "✅ <b>User Approved!</b> (Can send links now)", parse_mode='html')
 
-@bot.message_handler(commands=['filter'])
-def add_filter(message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split(maxsplit=2)
-    if len(args) < 3: return bot.reply_to(message, "⚠️ Usage: `/filter [keyword] [reply text]`")
-    group_filters[args[1].lower()] = args[2]
-    bot.reply_to(message, f"✅ Filter added for: <code>{args[1]}</code>", parse_mode='html')
-
 @bot.message_handler(func=lambda m: True)
 def main_chat_handler(message):
     if message.chat.type == 'private': return
     tracked_groups.add(message.chat.id)
     text = (message.text or "").lower()
     
-    # Store username mapping for /vouch @username
     if message.from_user.username:
         username_to_id['@' + message.from_user.username.lower()] = message.from_user.id
-    
-    for keyword, reply_text in group_filters.items():
-        if keyword in text and not text.startswith('/'):
-            bot.reply_to(message, reply_text)
-            break 
 
-    if message.from_user.id == ADMIN_ID or message.from_user.id in approved_users: return
+    if is_admin(message.chat.id, message.from_user.id) or message.from_user.id in approved_users: return
     if "http://" in text or "https://" in text or "t.me/" in text:
         try:
             bot.delete_message(message.chat.id, message.message_id)
@@ -420,4 +396,4 @@ def main_chat_handler(message):
 
 print("GAMERS CALL ESCROW BOT IS FULLY ACTIVE...")
 bot.infinity_polling()
-                               
+            

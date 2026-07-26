@@ -433,4 +433,64 @@ def approve_handler(message):
     if not message.reply_to_message: return
     uid = message.reply_to_message.from_user.id
     approved_users.add(uid)
-    bot.reply_to(message, "✅ <b>User Appr
+    bot.reply_to(message, "✅ <b>User Approved!</b> (Can send links & forwards now)", parse_mode='html')
+
+# ==========================================
+# 9. MAIN MESSAGE HANDLER (SILENT FILTERS + GALI BAN)
+# ==========================================
+@bot.message_handler(func=lambda m: True, content_types=['text', 'photo', 'video', 'document', 'animation'])
+def main_chat_handler(message):
+    if message.chat.type == 'private': return
+    tracked_groups.add(message.chat.id)
+    
+    uid = message.from_user.id
+    if message.from_user.username:
+        username_to_id['@' + message.from_user.username.lower()] = uid
+
+    # Admins and approved users bypass all filters
+    if is_admin(message.chat.id, uid) or uid in approved_users: return
+
+    # --- 1. ANTI-FORWARD (SILENT DELETE) ---
+    if message.forward_date:
+        try:
+            bot.delete_message(message.chat.id, message.message_id)
+            return
+        except: pass
+
+    text = (message.text or message.caption or "").lower()
+
+    # --- 2. ANTI-LINK (SILENT DELETE) ---
+    has_link = False
+    link_keywords = ["http://", "https://", "t.me/", ".com", ".in", "www."]
+    if any(keyword in text for keyword in link_keywords):
+        has_link = True
+    
+    if not has_link and (message.entities or message.caption_entities):
+        entities = message.entities if message.entities else message.caption_entities
+        if any(ent.type in ['url', 'text_link'] for ent in entities):
+            has_link = True
+            
+    if has_link:
+        try:
+            bot.delete_message(message.chat.id, message.message_id)
+            return
+        except: pass
+
+    # --- 3. ANTI-ABUSE (GALI) SYSTEM (WARNS & BANS) ---
+    for word in bad_words:
+        if f" {word} " in f" {text} " or text == word:
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+                user_warns[uid] = user_warns.get(uid, 0) + 1
+                
+                if user_warns[uid] >= 5:
+                    bot.ban_chat_member(message.chat.id, uid)
+                    bot.send_message(message.chat.id, f"🚨 <b>User BANNED!</b> (5/5 Warnings for abusive language)\n👤 ID: <code>{uid}</code>", parse_mode='html')
+                    user_warns[uid] = 0
+                else:
+                    bot.send_message(message.chat.id, f"🤬 <b>Language Warning!</b> ({user_warns[uid]}/5)\n<a href='tg://user?id={uid}'>{message.from_user.first_name}</a>, please do not use abusive words.", parse_mode='html')
+                return
+            except: pass
+
+print("GAMERS CALL ESCROW BOT IS FULLY ACTIVE...")
+bot.infinity_polling()
